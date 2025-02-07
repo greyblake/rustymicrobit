@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cortex-m = "0.7.7"
+# cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
-microbit-v2 = "0.15.1"
+microbit-v2 = { version = "0.15.1", features = ["embedded-hal-02"] }
 panic-halt = "1.0.0"
+embedded-hal = "0.2.7"

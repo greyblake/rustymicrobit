@@ -176,6 +176,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "365317da45a52eb2cfe9c23130520b69bd81a27922ff78c964de875137e9fa7b"
 dependencies = [
  "embedded-hal 1.0.0",
+ "nrf51-hal",
  "nrf52833-hal",
  "tiny-led-matrix",
 ]
@@ -214,12 +215,14 @@ dependencies = [
  "cfg-if",
  "cortex-m",
  "embedded-dma",
+ "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-io",
  "embedded-storage",
  "fixed",
  "nb 1.1.0",
  "nrf-usbd",
+ "nrf51-pac",
  "nrf52833-pac",
  "rand_core",
  "void",
@@ -234,6 +237,27 @@ dependencies = [
  "cortex-m",
  "critical-section",
  "usb-device",
+ "vcell",
+]
+
+[[package]]
+name = "nrf51-hal"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22ed1244a7c2c8da0ce121b6ef28175a253c1ddb2ef9849b8f15825295253bcd"
+dependencies = [
+ "nrf-hal-common",
+ "nrf51-pac",
+]
+
+[[package]]
+name = "nrf51-pac"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "137f187dc6ee482e27312086bd3c3a83e1c273512782cf131a61957f72fc4219"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
  "vcell",
 ]
 
@@ -307,8 +331,8 @@ dependencies = [
 name = "rustymicrobit"
 version = "0.1.0"
 dependencies = [
- "cortex-m",
  "cortex-m-rt",
+ "embedded-hal 0.2.7",
  "microbit-v2",
  "panic-halt",
 ]
