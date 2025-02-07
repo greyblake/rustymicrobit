@@ -5,6 +5,7 @@ use cortex_m_rt::entry;
 use microbit::board::Board;
 use microbit::display::blocking::Display;
 use microbit::hal::Timer;
+use microbit::hal::prelude::*;
 use panic_halt as _;
 
 #[entry]
@@ -27,6 +28,12 @@ fn main() -> ! {
         display.show(&mut timer, PATTERN_2, 300);
         display.show(&mut timer, on_pattern, 500);
         display.show(&mut timer, off_pattern, 500);
+
+        // HEART
+        for _ in 0..5 {
+            display.show(&mut timer, PATTERN_HEART, 500);
+            display.show(&mut timer, off_pattern, 500);
+        }
 
         display.show(&mut timer, LETTER_A, 800);
         display.show(&mut timer, off_pattern, 500);
@@ -94,4 +101,12 @@ const PATTERN_2: Pattern = [
     [0, 1, 1, 1, 0],
     [0, 1, 1, 1, 0],
     [0, 0, 0, 0, 0],
+];
+
+const PATTERN_HEART: Pattern = [
+    [0, 1, 0, 1, 0],
+    [1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 0],
+    [0, 0, 1, 0, 0],
 ];
