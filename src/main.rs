@@ -13,11 +13,14 @@ use microbit::hal::pwm::{Channel, Pwm};
 use microbit::hal::time::Hertz;
 use microbit::hal::Timer;
 use microbit::pac::TIMER0;
+use embedded_hal::digital::v2::OutputPin;
 //use microbit::hal::PWM0;
 //
 use panic_halt as _;
+use heapless::Vec;
 
 pub mod music;
+
 
 use music::{
     get_pitch_freq, note_duration_to_ms, Bpm, Note, NoteDuration, Octave, Pitch, PitchClass,
@@ -49,13 +52,14 @@ fn main() -> ! {
     pwm.set_output_pin(Channel::C0, speaker_pin.degrade());
 
     // Example beep frequency: 440 Hz
-    pwm.set_period(Hertz(600));
+    // 587 = D
+    pwm.set_period(Hertz(587));
 
     // 50% duty cycle
     let max_duty = pwm.max_duty();
-    //pwm.enable();
+    pwm.enable();
 
-    //pwm.set_duty_on(Channel::C0, max_duty / 2);
+    pwm.set_duty_on(Channel::C0, max_duty / 9);
 
     // -----------------------------------------
     // 3) Set up the LED matrix display & a timer for delays
@@ -63,65 +67,49 @@ fn main() -> ! {
     let mut display = Display::new(board.display_pins);
     let mut timer = Timer::new(board.TIMER0);
 
-    // Patterns to use on the 5x5 LED matrix
-    let on_pattern = [[1; 5]; 5];
-    let off_pattern = [[0; 5]; 5];
 
     let button_a = board.buttons.button_a;
     let button_b = board.buttons.button_b;
 
-
-    let mut current_pos = Pos {
-        x: 2,
-        y: 4,
-    };
+    let mut game = Game::new();
 
     loop {
-        let pattern = render_pattern(current_pos);
-        display.show(&mut timer, pattern, 100);
+        let pattern = render_game(&game);
+        display.show(&mut timer, pattern, 120);
+        pwm.set_duty_on(Channel::C0, 0);
+
+        let mut sound = game.tick();
+
 
         let action = read_action(&button_a, &button_b);
         if let Some(action) = action {
-            current_pos = change_position(current_pos, action);
+            let maybe_another_sound = game.apply_player_action(action);
+            if maybe_another_sound.is_some() {
+                sound = maybe_another_sound;
+            }
         }
+
+        match sound {
+            Some(SoundEffect::Shoot) => {
+                pwm.set_period(Hertz(659));
+                pwm.set_duty_on(Channel::C0, max_duty / 2);
+            }
+            Some(SoundEffect::Hit) => {
+                pwm.set_period(Hertz(440));
+                pwm.set_duty_on(Channel::C0, max_duty / 2);
+            }
+            None => {}
+        }
+
     }
 }
 
 
-fn change_position(
-    pos: Pos,
-    action: Action,
-) -> Pos {
-
-    match action {
-        Action::Left => {
-            if pos.x > 0 {
-                Pos { x: pos.x - 1, y: pos.y }
-            } else {
-                pos
-            }
-        }
-        Action::Right => {
-            if pos.x < 4 {
-                Pos { x: pos.x + 1, y: pos.y }
-            } else {
-                pos
-            }
-        }
-        Action::Up => {
-            if pos.y > 0 {
-                Pos { x: pos.x, y: pos.y - 1 }
-            } else {
-                pos
-            }
-        }
-    }
-}
-
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Left,
     Right,
-    Up,
+    Shoot,
 }
 
 fn read_action(
@@ -133,32 +121,142 @@ fn read_action(
 
     if button_a.is_low().unwrap() {
         is_a = true;
-    } else if button_b.is_low().unwrap() {
+    }
+    if button_b.is_low().unwrap() {
         is_b = true;
     }
 
     match (is_a, is_b) {
         (false, false) => None,
-        (true, true) => Some(Action::Up),
+        (true, true) => Some(Action::Shoot),
         (false, true) => Some(Action::Right),
         (true, false) => Some(Action::Left),
     }
 }
 
+fn render_game(game: &Game) -> Pattern {
+    let mut pattern = [[0; 5]; 5];
 
-#[derive(Clone, Copy)]
+    pattern[game.player.y][game.player.x] = 1;
+
+    for enemy in game.enemies.iter() {
+        pattern[enemy.y][enemy.x] = 1;
+    }
+
+    if let Some(bullet) = game.bullet {
+        pattern[bullet.y][bullet.x] = 1;
+    }
+
+    pattern
+}
+
+
+
+#[derive(Clone, Copy, Debug)]
 struct Pos {
     x: usize,
     y: usize,
 }
 
-fn render_pattern(pos: Pos) -> Pattern {
-    let mut pattern = [[0; 5]; 5];
-
-    pattern[pos.y][pos.x] = 1;
-
-    pattern
+struct Game {
+    player: Pos,
+    enemies: Vec<Pos, 25>,
+    bullet: Option<Pos>,
+    counter: usize,
+    noise: usize,
 }
+
+impl Game {
+    fn new() -> Self {
+        Game {
+            player: Pos { x: 2, y: 4 },
+            enemies: Vec::new(),
+            bullet: None,
+            counter: 0,
+            noise: 123,
+        }
+    }
+
+    fn apply_player_action(&mut self, action: Action) -> Option<SoundEffect> {
+        let mut sound = None;
+        match action {
+            Action::Left => {
+                if self.player.x > 0 {
+                    self.player.x = self.player.x - 1;
+                }
+                self.noise = self.noise + 1;
+            }
+            Action::Right => {
+                if self.player.x < 4 {
+                    self.player.x = self.player.x + 1;
+                }
+                self.noise = self.noise + 5;
+            }
+            Action::Shoot => {
+                if self.bullet.is_none() {
+                    self.bullet = Some(Pos {
+                        x: self.player.x,
+                        y: self.player.y,
+                    });
+                }
+                self.noise = self.noise + 13;
+                sound = Some(SoundEffect::Shoot);
+            }
+        }
+        sound
+    }
+
+    fn tick(&mut self) -> Option<SoundEffect> {
+        self.counter = self.counter + 1;
+        let mut sound = None;
+
+        if let Some(bullet) = self.bullet {
+            if bullet.y == 0 {
+                self.bullet = None;
+            } else {
+                let y = bullet.y - 1;
+                let x = bullet.x;
+                self.bullet = Some(Pos { x, y });
+
+                for enemy in self.enemies.iter() {
+                    if enemy.x == x && enemy.y == y {
+                        self.enemies.retain(|e| e.x != x || e.y != y);
+                        self.bullet = None;
+                        sound = Some(SoundEffect::Hit);
+                        break;
+                    }
+                }
+
+            }
+        }
+
+        // Generate a new enemy every 49 ticks
+        if self.counter % 19 == 0 {
+            let x = (self.counter + self.noise) % 5;
+            let _old = self.enemies.push(
+                Pos {
+                    x: x,
+                    y: 0,
+                }
+            );
+        }
+
+        // Move enemies down
+        if self.counter % 49 == 0 {
+            for enemy in self.enemies.iter_mut() {
+                enemy.y = enemy.y + 1;
+            }
+        }
+
+        sound
+    }
+}
+
+enum SoundEffect {
+    Shoot,
+    Hit,
+}
+
 
 
 type Pattern = [[u8; 5]; 5];
@@ -268,3 +366,6 @@ fn index_to_pattern(index: usize) -> Pattern {
         _ => PATTERN_0,
     }
 }
+
+const PATTERN_BLANK: [[u8; 5]; 5] = [[0; 5]; 5];
+const PATTERN_FULL: [[u8; 5]; 5] = [[1; 5]; 5];

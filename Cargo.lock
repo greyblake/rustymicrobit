@@ -333,6 +333,7 @@ version = "0.1.0"
 dependencies = [
  "cortex-m-rt",
  "embedded-hal 0.2.7",
+ "heapless",
  "microbit-v2",
  "panic-halt",
 ]

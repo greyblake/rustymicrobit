@@ -9,3 +9,4 @@ cortex-m-rt = "0.7.5"
 microbit-v2 = { version = "0.15.1", features = ["embedded-hal-02"] }
 panic-halt = "1.0.0"
 embedded-hal = "0.2.7"
+heapless = "0.8.0"
