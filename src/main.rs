@@ -4,6 +4,7 @@
 use cortex_m_rt::entry;
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::digital::v2::InputPin;
+use embedded_hal::digital::v2::OutputPin;
 use microbit::board::Board;
 use microbit::display::blocking::Display;
 use microbit::hal::gpio::p0::{P0_14, P0_23};
@@ -13,17 +14,15 @@ use microbit::hal::pwm::{Channel, Pwm};
 use microbit::hal::time::Hertz;
 use microbit::hal::Timer;
 use microbit::pac::TIMER0;
-use embedded_hal::digital::v2::OutputPin;
 //use microbit::hal::PWM0;
 //
-use panic_halt as _;
 use heapless::Vec;
+use panic_halt as _;
 
 pub mod music;
 
-
 use music::{
-    get_pitch_freq, note_duration_to_ms, Bpm, Note, NoteDuration, Octave, Pitch, PitchClass,
+    get_pitch_freq, note_duration_to_ms, Bpm, Melody, Note, NoteDuration, Octave, Pitch, PitchClass,
 };
 
 #[entry]
@@ -67,9 +66,36 @@ fn main() -> ! {
     let mut display = Display::new(board.display_pins);
     let mut timer = Timer::new(board.TIMER0);
 
-
     let button_a = board.buttons.button_a;
     let button_b = board.buttons.button_b;
+
+    let mut play_note = |pwm: &mut Pwm<_>,
+                         timer: &mut Timer<TIMER0>,
+                         display: &mut Display,
+                         note: Note,
+                         current_tempo: Bpm,
+                         pattern: Pattern| {
+        if let Some(pitch) = note.pitch {
+            let freq = get_pitch_freq(pitch);
+            pwm.set_period(freq);
+            pwm.set_duty_on(Channel::C0, max_duty / 2);
+        } else {
+            pwm.set_duty_on(Channel::C0, 0);
+        }
+        let ms = note_duration_to_ms(note.duration, current_tempo);
+        //timer.delay_ms(ms);
+        display.show(timer, pattern, ms);
+    };
+
+    let mut play_melody = |pwm: &mut Pwm<_>,
+                           timer: &mut Timer<TIMER0>,
+                           display: &mut Display,
+                           melody: &Melody,
+                           pattern: Pattern| {
+        for note in melody.notes {
+            play_note(pwm, timer, display, *note, melody.tempo, pattern);
+        }
+    };
 
     let mut game = Game::new();
 
@@ -80,7 +106,6 @@ fn main() -> ! {
 
         let mut sound = game.tick();
 
-
         let action = read_action(&button_a, &button_b);
         if let Some(action) = action {
             let maybe_another_sound = game.apply_player_action(action);
@@ -90,20 +115,28 @@ fn main() -> ! {
         }
 
         match sound {
-            Some(SoundEffect::Shoot) => {
+            Some(Effect::SoundShoot) => {
                 pwm.set_period(Hertz(659));
                 pwm.set_duty_on(Channel::C0, max_duty / 2);
             }
-            Some(SoundEffect::Hit) => {
+            Some(Effect::SoundHit) => {
                 pwm.set_period(Hertz(440));
                 pwm.set_duty_on(Channel::C0, max_duty / 2);
             }
+            Some(Effect::GameOver) => {
+                play_melody(
+                    &mut pwm,
+                    &mut timer,
+                    &mut display,
+                    &MELODY_GAME_OVER,
+                    PATTERN_SAD_FACE,
+                );
+                game = Game::new();
+            }
             None => {}
         }
-
     }
 }
-
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
@@ -150,8 +183,6 @@ fn render_game(game: &Game) -> Pattern {
     pattern
 }
 
-
-
 #[derive(Clone, Copy, Debug)]
 struct Pos {
     x: usize,
@@ -177,7 +208,7 @@ impl Game {
         }
     }
 
-    fn apply_player_action(&mut self, action: Action) -> Option<SoundEffect> {
+    fn apply_player_action(&mut self, action: Action) -> Option<Effect> {
         let mut sound = None;
         match action {
             Action::Left => {
@@ -200,13 +231,13 @@ impl Game {
                     });
                 }
                 self.noise = self.noise + 13;
-                sound = Some(SoundEffect::Shoot);
+                sound = Some(Effect::SoundShoot);
             }
         }
         sound
     }
 
-    fn tick(&mut self) -> Option<SoundEffect> {
+    fn tick(&mut self) -> Option<Effect> {
         self.counter = self.counter + 1;
         let mut sound = None;
 
@@ -222,29 +253,26 @@ impl Game {
                     if enemy.x == x && enemy.y == y {
                         self.enemies.retain(|e| e.x != x || e.y != y);
                         self.bullet = None;
-                        sound = Some(SoundEffect::Hit);
+                        sound = Some(Effect::SoundHit);
                         break;
                     }
                 }
-
             }
         }
 
         // Generate a new enemy every 49 ticks
         if self.counter % 19 == 0 {
             let x = (self.counter + self.noise) % 5;
-            let _old = self.enemies.push(
-                Pos {
-                    x: x,
-                    y: 0,
-                }
-            );
+            let _old = self.enemies.push(Pos { x: x, y: 0 });
         }
 
         // Move enemies down
         if self.counter % 49 == 0 {
             for enemy in self.enemies.iter_mut() {
                 enemy.y = enemy.y + 1;
+                if enemy.y >= 4 {
+                    return Some(Effect::GameOver);
+                }
             }
         }
 
@@ -252,12 +280,11 @@ impl Game {
     }
 }
 
-enum SoundEffect {
-    Shoot,
-    Hit,
+enum Effect {
+    SoundShoot,
+    SoundHit,
+    GameOver,
 }
-
-
 
 type Pattern = [[u8; 5]; 5];
 
@@ -369,3 +396,52 @@ fn index_to_pattern(index: usize) -> Pattern {
 
 const PATTERN_BLANK: [[u8; 5]; 5] = [[0; 5]; 5];
 const PATTERN_FULL: [[u8; 5]; 5] = [[1; 5]; 5];
+
+const PATTERN_SAD_FACE: Pattern = [
+    [0, 0, 0, 0, 0],
+    [0, 1, 0, 1, 0],
+    [0, 0, 0, 0, 0],
+    [0, 1, 1, 1, 0],
+    [1, 0, 0, 0, 1],
+];
+
+const MELODY_GAME_OVER: Melody = Melody {
+    tempo: Bpm(120),
+    notes: &[
+        Note {
+            duration: NoteDuration::Quarter,
+            pitch: Some(Pitch {
+                note: PitchClass::D,
+                octave: Octave::Two,
+            }),
+        },
+        Note {
+            duration: NoteDuration::Quarter,
+            pitch: Some(Pitch {
+                note: PitchClass::CSharp,
+                octave: Octave::Two,
+            }),
+        },
+        Note {
+            duration: NoteDuration::Quarter,
+            pitch: Some(Pitch {
+                note: PitchClass::C,
+                octave: Octave::Two,
+            }),
+        },
+        Note {
+            duration: NoteDuration::Half,
+            pitch: Some(Pitch {
+                note: PitchClass::B,
+                octave: Octave::One,
+            }),
+        },
+        // Note {
+        //     duration: NoteDuration::Whole,
+        //     pitch: Some(Pitch {
+        //         note: PitchClass::ASharp,
+        //         octave: Octave::One,
+        //     }),
+        // },
+    ],
+};

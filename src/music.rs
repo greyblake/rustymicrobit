@@ -97,3 +97,8 @@ pub fn note_duration_to_ms(duration: NoteDuration, tempo: Bpm) -> u32 {
 
     ms
 }
+
+pub struct Melody {
+    pub notes: &'static [Note],
+    pub tempo: Bpm,
+}
